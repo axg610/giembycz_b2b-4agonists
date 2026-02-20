@@ -1,0 +1,198 @@
+```{r setup, include=F}
+library(tidyverse)
+library(writexl)
+```
+
+```{r clean tpm data, include=F}
+tpm <- read_tsv("../data/sleuth output from arc/B2B_4agonists tpm.tsv") %>%
+  mutate(tpm = tpm + 1) %>%
+  group_by(Gene, rep, agonist_set) %>%
+  mutate(fold = tpm / tpm[treatment == "NS"]) %>%
+  ungroup() %>%
+  mutate(log2tpm = log2(tpm),
+         log2fold = log2(fold))
+
+write_tsv(tpm, "../data/B2B_4agonists tpm tidy.txt")
+
+#test theta values
+tpm_1 <- read_tsv("../data/sleuth output from arc/B2B_4agonists tpm.tsv") %>%
+  mutate(tpm = tpm + 1) %>%
+  group_by(Gene, rep, agonist_set) %>%
+  mutate(fold = tpm / tpm[treatment == "NS"]) %>%
+  ungroup() %>%
+  mutate(log2tpm = log2(tpm),
+         log2fold = log2(fold))
+write_tsv(tpm_1, "../data/B2B_4agonists tpm tidy (theta 1).txt")
+
+tpm_0.1 <- read_tsv("../data/sleuth output from arc/B2B_4agonists tpm.tsv") %>%
+  mutate(tpm = tpm + 0.1) %>%
+  group_by(Gene, rep, agonist_set) %>%
+  mutate(fold = tpm / tpm[treatment == "NS"]) %>%
+  ungroup() %>%
+  mutate(log2tpm = log2(tpm),
+         log2fold = log2(fold))
+write_tsv(tpm_0.1, "../data/B2B_4agonists tpm tidy (theta 0.1).txt")
+
+tpm_0.01 <- read_tsv("../data/sleuth output from arc/B2B_4agonists tpm.tsv") %>%
+  mutate(tpm = tpm + 0.01) %>%
+  group_by(Gene, rep, agonist_set) %>%
+  mutate(fold = tpm / tpm[treatment == "NS"]) %>%
+  ungroup() %>%
+  mutate(log2tpm = log2(tpm),
+         log2fold = log2(fold))
+write_tsv(tpm, "../data/B2B_4agonists tpm tidy (0.01).txt")
+
+hist(log2(tpm_1$fold), xlim = c(-20, 20), xlab = "log2fold")
+hist(log2(tpm_0.1$fold), xlim = c(-20, 20), xlab = "log2fold")
+hist(log2(tpm_0.01$fold), xlim = c(-20, 20), xlab = "log2fold")
+```
+
+```{r clean fold data, include=F}
+dea <- read_tsv("../data/sleuth output from arc/B2B_4agonists dea.tsv") %>%
+  mutate(FDR = if_else(is.na(FDR), 1, FDR),
+         fold = if_else(is.na(fold), 0, fold)) %>%
+  mutate(log2fold = fold, fold = 2^fold, .before = 7) %>%
+  mutate(sig = if_else(fold >= 1.5 & FDR < 0.05, "up",
+                       if_else(fold <= 0.67 & FDR < 0.05, "dn", "ns"))) %>%
+  arrange(Gene) %>%
+  distinct()
+
+write_tsv(dea, "../data/B2B_4agonists dea tidy.txt")
+```
+
+```{r write genelists}
+genelists <- list()
+
+for (agonist in c("Form", "Vil", "Ind", "Salm")){
+  for(s in c("up", "dn")){
+    
+    genes <- dea %>% filter(treatment == agonist & sig == s) %>%
+      pull(Gene) %>% sort() %>% unique()
+    
+    length <- length(genes)
+    
+    writeLines(genes, paste0("../data/genelists/", agonist, "_", s, " (", length, ")"))
+    
+    genelists[[paste0(agonist, "_", s)]] <- genes
+  }
+}
+
+write_rds(genelists, "../data/genelists.rds")
+
+rm(agonist, genes, length, s)
+```
+
+```{r wide data for mark & tamkeen}
+tpm_wide <- tpm %>%
+  mutate(sample = paste(agonist_set, treatment, rep, sep = "_")) %>%
+  select(Gene, sample, tpm) %>%
+  pivot_wider(names_from = sample, values_from = tpm)
+
+tpm_wide_list <- list(
+  form = select(tpm_wide, Gene, contains("form_NS"), contains("form_Form")),
+  vil = select(tpm_wide, Gene, contains("vil_NS"), contains("vil_Vil")),
+  ind = select(tpm_wide, Gene, contains("ind_NS"), contains("ind_Ind")),
+  salm = select(tpm_wide, Gene, contains("salm_NS"), contains("salm_Salm"))
+)
+
+write_xlsx(tpm_wide_list, "../data/wide data/tpm wide.xlsx")
+
+fold_wide <- tpm %>%
+  mutate(sample = paste(agonist_set, treatment, rep, sep = "_")) %>%
+  select(Gene, sample, fold) %>%
+  pivot_wider(names_from = sample, values_from = fold)
+
+fold_wide_list <- list(
+  form = select(fold_wide, Gene, contains("form_Form")),
+  vil = select(fold_wide, Gene, contains("vil_Vil")),
+  ind = select(fold_wide, Gene, contains("ind_Ind")),
+  salm = select(fold_wide, Gene, contains("salm_Salm"))
+)
+
+write_xlsx(fold_wide_list, "../data/wide data/tpm_fold wide.xlsx")
+
+dea_wide <- dea %>%
+  select(Gene, treatment, fold, FDR) %>%
+  pivot_longer(cols = c(fold, FDR), names_to = "stat", values_to = "value") %>%
+  mutate(name = paste(treatment, stat, sep ="_")) %>% select(Gene, name, value) %>%
+  pivot_wider(names_from = "name", values_from = "value")
+
+write_xlsx(dea_wide, "../data/wide data/dea wide.xlsx")
+```
+
+```{r}
+#theta tests
+
+tpm_wide_1 <- tpm_1 %>%
+  mutate(sample = paste(agonist_set, treatment, rep, sep = "_")) %>%
+  select(Gene, sample, tpm) %>%
+  pivot_wider(names_from = sample, values_from = tpm)
+tpm_wide_list_1 <- list(
+  form = select(tpm_wide_1, Gene, contains("form_NS"), contains("form_Form")),
+  vil = select(tpm_wide_1, Gene, contains("vil_NS"), contains("vil_Vil")),
+  ind = select(tpm_wide_1, Gene, contains("ind_NS"), contains("ind_Ind")),
+  salm = select(tpm_wide_1, Gene, contains("salm_NS"), contains("salm_Salm"))
+)
+write_xlsx(tpm_wide_list_1, "../data/wide data/tpm wide (theta 1).xlsx")
+
+tpm_wide_0.1 <- tpm_0.1 %>%
+  mutate(sample = paste(agonist_set, treatment, rep, sep = "_")) %>%
+  select(Gene, sample, tpm) %>%
+  pivot_wider(names_from = sample, values_from = tpm)
+tpm_wide_list_0.1 <- list(
+  form = select(tpm_wide_0.1, Gene, contains("form_NS"), contains("form_Form")),
+  vil = select(tpm_wide_0.1, Gene, contains("vil_NS"), contains("vil_Vil")),
+  ind = select(tpm_wide_0.1, Gene, contains("ind_NS"), contains("ind_Ind")),
+  salm = select(tpm_wide_0.1, Gene, contains("salm_NS"), contains("salm_Salm"))
+)
+write_xlsx(tpm_wide_list_0.1, "../data/wide data/tpm wide (theta 0.1).xlsx")
+
+tpm_wide_0.01 <- tpm_0.01 %>%
+  mutate(sample = paste(agonist_set, treatment, rep, sep = "_")) %>%
+  select(Gene, sample, tpm) %>%
+  pivot_wider(names_from = sample, values_from = tpm)
+tpm_wide_list_0.01 <- list(
+  form = select(tpm_wide_0.01, Gene, contains("form_NS"), contains("form_Form")),
+  vil = select(tpm_wide_0.01, Gene, contains("vil_NS"), contains("vil_Vil")),
+  ind = select(tpm_wide_0.01, Gene, contains("ind_NS"), contains("ind_Ind")),
+  salm = select(tpm_wide_0.01, Gene, contains("salm_NS"), contains("salm_Salm"))
+)
+write_xlsx(tpm_wide_list_0.01, "../data/wide data/tpm wide (theta 0.01).xlsx")
+
+fold_wide_1 <- tpm_1 %>%
+  mutate(sample = paste(agonist_set, treatment, rep, sep = "_")) %>%
+  select(Gene, sample, fold) %>%
+  pivot_wider(names_from = sample, values_from = fold)
+fold_wide_list_1 <- list(
+  form = select(fold_wide_1, Gene, contains("form_Form")),
+  vil = select(fold_wide_1, Gene, contains("vil_Vil")),
+  ind = select(fold_wide_1, Gene, contains("ind_Ind")),
+  salm = select(fold_wide_1, Gene, contains("salm_Salm"))
+)
+write_xlsx(fold_wide_list_1, "../data/wide data/tpm_fold wide (theta 1).xlsx")
+
+fold_wide_0.1 <- tpm_0.1 %>%
+  mutate(sample = paste(agonist_set, treatment, rep, sep = "_")) %>%
+  select(Gene, sample, fold) %>%
+  pivot_wider(names_from = sample, values_from = fold)
+fold_wide_list_0.1 <- list(
+  form = select(fold_wide_0.1, Gene, contains("form_Form")),
+  vil = select(fold_wide_0.1, Gene, contains("vil_Vil")),
+  ind = select(fold_wide_0.1, Gene, contains("ind_Ind")),
+  salm = select(fold_wide_0.1, Gene, contains("salm_Salm"))
+)
+write_xlsx(fold_wide_list_0.1, "../data/wide data/tpm_fold wide (theta 0.1).xlsx")
+
+fold_wide_0.01 <- tpm_0.01 %>%
+  mutate(sample = paste(agonist_set, treatment, rep, sep = "_")) %>%
+  select(Gene, sample, fold) %>%
+  pivot_wider(names_from = sample, values_from = fold)
+fold_wide_list_0.01 <- list(
+  form = select(fold_wide_0.01, Gene, contains("form_Form")),
+  vil = select(fold_wide_0.01, Gene, contains("vil_Vil")),
+  ind = select(fold_wide_0.01, Gene, contains("ind_Ind")),
+  salm = select(fold_wide_0.01, Gene, contains("salm_Salm"))
+)
+write_xlsx(fold_wide_list_0.01, "../data/wide data/tpm_fold wide (theta 0.01).xlsx")
+```
+

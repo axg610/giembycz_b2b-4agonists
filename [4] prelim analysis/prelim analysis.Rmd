@@ -1,0 +1,149 @@
+```{r setup, include=F}
+library(tidyverse)
+library(pheatmap)
+library(eulerr)
+library(ComplexHeatmap)
+```
+
+```{r data, include=F}
+tpm <- read_tsv("../data/B2B_4agonists tpm tidy.txt")
+genelists <- readRDS("../data/genelists.rds")
+```
+
+```{r venn diagram}
+groups_regulated <- unlist(genelists) %>% unique() %>% sort() %>%
+  as.data.frame(nm = "Gene") %>%
+  mutate(Form = if_else(Gene %in% c(genelists[["Form_up"]], genelists[["Form_dn"]]), "Form", NA),
+         Vil = if_else(Gene %in% c(genelists[["Vil_up"]], genelists[["Vil_dn"]]), "Vil", NA),
+         Ind = if_else(Gene %in% c(genelists[["Ind_up"]], genelists[["Ind_dn"]]), "Ind", NA),
+         Salm = if_else(Gene %in% c(genelists[["Salm_up"]], genelists[["Salm_dn"]]), "Salm", NA)
+  ) %>%
+  group_by(Gene) %>% mutate(group = paste(na.omit(c(Form, Vil, Ind, Salm)), collapse = "&")) %>% ungroup() %>%
+  select(Gene, group)
+
+euler <- groups_regulated %>% count(group) %>%
+  deframe() %>% euler(shape = "ellipse")
+
+venn <- groups_regulated %>% count(group) %>%
+  deframe() %>% venn()
+
+png("euler.png", h=700, w=1200, res=150)
+plot(euler,
+     quantities = list(types = c("counts")),
+     fills = c("#ffd166", "#06d6a0", "#7570B3", "#118ab2"),
+     edges = "transparent",
+     main = "Regulated by agonist (0.67 < fold > 1.5, FDR < 0.05)")
+dev.off()
+
+png("venn.png", h=700, w=1200, res=150)
+plot(venn,
+     quantities = list(types = c("counts" ,"percent")),
+     fills = c("#ffd166", "#06d6a0", "#7570B3", "#118ab2"),
+     edges = "transparent",
+     main = "Regulated by agonist (0.67 < fold > 1.5, FDR < 0.05)")
+dev.off()
+
+#print names
+for (g in unique(groups_regulated$group)){
+  
+  name = gsub("&", "_", g)
+  
+  genes <- groups_regulated %>% filter(group == g) %>%
+    pull(Gene) %>% unique() %>% sort()
+  
+  writeLines(genes, paste0("venn groups/", name, ".txt"))
+}
+
+rm(euler, venn, g, genes, name)
+```
+
+```{r heatmap}
+mat <- tpm %>% filter(Gene %in% groups_regulated$Gene & treatment != "NS") %>%
+  mutate(sample = paste(treatment, rep, sep = "_")) %>%
+  select(Gene, sample, log2fold) %>%
+  arrange(Gene, sample) %>%
+  pivot_wider(names_from = sample, values_from = log2fold) %>%
+  select(Gene, contains("Form"), contains("Vil"), contains("Ind"), contains("Salm")) %>%
+  column_to_rownames("Gene") %>% as.matrix()
+
+colors = colorRampPalette(c("steelblue4", "steelblue3" , "white", "firebrick3", "firebrick4"))(200)
+
+breaks = c(seq(min(mat), -0.5, length = 90),
+           seq(-0.49, 0.49, length = 20),
+           seq(0.5, max(mat), length = 90))
+
+pheatmap::pheatmap(mat,
+         cluster_rows = T, cluster_cols = F,
+         color = colors, breaks = breaks,
+         show_rownames = F,
+         filename = "regulated heatmap.png",
+         cellwidth = 20, cellheight = 0.5)
+
+rm(colors, breaks)
+```
+
+```{r venn heatmap}
+#form only
+m1 <- filter(groups_regulated, group == "Form") %>% select(Gene) %>% 
+  left_join(rownames_to_column(as.data.frame(mat), "Gene"), by = "Gene") %>% column_to_rownames("Gene") %>% as.matrix() %>%
+  # t() %>% scale() %>% t() %>% 
+  { .[hclust(dist(.))$order, ] }
+
+#vil only
+m2 <- filter(groups_regulated, group == "Vil") %>% select(Gene) %>% 
+  left_join(rownames_to_column(as.data.frame(mat), "Gene"), by = "Gene") %>% column_to_rownames("Gene") %>% as.matrix() %>%
+  # t() %>% scale() %>% t() %>% 
+  { .[hclust(dist(.))$order, ] }
+
+#ind only
+m3 <- filter(groups_regulated, group == "Ind") %>% select(Gene) %>% 
+  left_join(rownames_to_column(as.data.frame(mat), "Gene"), by = "Gene") %>% column_to_rownames("Gene") %>% as.matrix() %>%
+  # t() %>% scale() %>% t() %>% 
+  { .[hclust(dist(.))$order, ] }
+
+#salm only
+m4 <- filter(groups_regulated, group == "Salm") %>% select(Gene) %>% 
+  left_join(rownames_to_column(as.data.frame(mat), "Gene"), by = "Gene") %>% column_to_rownames("Gene") %>% as.matrix() %>%
+  # t() %>% scale() %>% t() %>% 
+  { .[hclust(dist(.))$order, ] }
+
+#quad overlap
+m5 <- filter(groups_regulated, group == "Form&Vil&Ind&Salm") %>% select(Gene) %>% 
+  left_join(rownames_to_column(as.data.frame(mat), "Gene"), by = "Gene") %>% column_to_rownames("Gene") %>% as.matrix() %>%
+  # t() %>% scale() %>% t() %>% 
+  { .[hclust(dist(.))$order, ] }
+
+#colors
+pallete = colorRampPalette(c("steelblue4", "steelblue3" , "white", "firebrick3", "firebrick4"))(200)
+col_breaks = c(seq(min(min(m1), min(m2), min(m3), min(m4), min(m5)), -0.5, length = 90),
+               seq(-0.49, 0.49, length = 20),
+               seq(0.5, max(max(m1), max(m2), max(m3), max(m4), max(m5)), length = 90))
+col = circlize::colorRamp2(col_breaks, pallete)
+rm(pallete, col_breaks)
+
+
+#make heatmaps
+plot_heatmap <- function(matrix){
+  hm1 <- Heatmap(matrix, col = col, cluster_rows = F, cluster_columns = F,
+               show_row_dend = F, show_column_dend = F,
+               show_row_names = F, show_column_names = F,
+               column_split = c("Form", "Form", "Form", "Form", "Form",
+                                "Vil", "Vil", "Vil", "Vil", "Vil",
+                                "Ind", "Ind", "Ind", "Ind", "Ind",
+                                "Salm", "Salm", "Salm", "Salm"),
+               border = T)
+  return(hm1)
+}
+
+hm1 <- plot_heatmap(m1)
+hm2 <- plot_heatmap(m2)
+hm3 <- plot_heatmap(m3)
+hm4 <- plot_heatmap(m4)
+hm5 <- plot_heatmap(m5)
+
+png("venn heatmap.png", w = 480, h = 480, units = "px")
+draw(hm1 %v% hm2 %v% hm3 %v% hm4 %v% hm5)
+dev.off()
+```
+
+

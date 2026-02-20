@@ -1,0 +1,60 @@
+```{r setup, include=F}
+library(tidyverse)
+library(readxl)
+library(writexl)
+```
+
+```{r multi-way correlation function from taylor 2020}
+cor_taylor <- function(X){
+  if(!inherits(X,"matrix")){
+    stop("Input must be inherit ’matrix’ class.")
+  }
+  n <- ncol(X)
+  return((1/sqrt(n))*sd(eigen(cor(X))$values))
+}
+```
+
+```{r test}
+#read in tpm values
+tpm <- read_tsv("../data/B2B_4agonists tpm tidy (theta 0.1).txt")
+
+#grab genes: any gene up- or down-regulated by any treatment at 2h
+genelists <- readRDS("../data/genelists.rds")
+genes <- genelists %>% unlist() %>% unique() %>% sort()
+
+#take mean fold values (from tpm, NOT DEA) and convert to matrix
+matrix <- tpm %>% filter(Gene %in% genes & treatment != "NS") %>%
+  group_by(Gene, treatment) %>% summarize(fold = mean(fold), .groups = "keep") %>% ungroup() %>%
+  pivot_wider(names_from = treatment, values_from = fold) %>%
+  column_to_rownames("Gene") %>% as.matrix()
+
+cor_taylor(matrix)
+
+#ok
+
+rm(genelists, matrix, tpm, genes)
+```
+
+```{r run stats on matrices from mark}
+cor_df <- data.frame()
+
+for (f in list.files("matrices from mark/")){
+  
+  nm = gsub(".xlsx", "", f)
+  
+  mat = read_xlsx(paste0("matrices from mark/", f), col_names = F) %>%
+    as.matrix()
+  
+  cor <- cor_taylor(mat)
+  
+  df <- data.frame(matrix_name = nm, correlation = cor)
+  
+  cor_df = rbind(cor_df, df)
+}
+
+write_xlsx(cor_df, "multi-way correlations 020625.xlsx")
+
+rm(df, mat, cor, f, nm)
+```
+
+

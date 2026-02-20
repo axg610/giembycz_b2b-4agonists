@@ -1,0 +1,128 @@
+use ctrl alt enter for terminal inputs..
+
+```{terminal}
+#log into arc
+ssh alex.gao1@arc.ucalgary.ca
+
+#get interactive session
+salloc -N 1 -n 1 -c 1 --mem=32GB --time=05:00:00
+
+#load R
+module load R/4.4.1
+R
+```
+
+```{r}
+.libPaths("/home/alex.gao1/R/")
+setwd("/work/giembycz_lab/B2B_Form-Salm-Vil-Ind_comparison/sleuth/")
+
+library(sleuth)
+packageVersion("sleuth")
+#0.30.1
+library(dplyr)
+library(readr)
+```
+
+```{r metafiles}
+#prep metafiles
+meta <- read_tsv("meta.txt")
+
+meta_form <- filter(meta, agonist_set == "form") %>% mutate(treatment = factor(treatment, levels = c("NS", "Form")))
+meta_vil <- filter(meta, agonist_set == "vil") %>% mutate(treatment = factor(treatment, levels = c("NS", "Vil")))
+meta_ind <- filter(meta, agonist_set == "ind") %>% mutate(treatment = factor(treatment, levels = c("NS", "Ind")))
+meta_salm <- filter(meta, agonist_set == "salm") %>% mutate(treatment = factor(treatment, levels = c("NS", "Salm")))
+
+#prep t2g
+t2g <- read_tsv("/work/giembycz_lab/ag_tools/Homo_sapiens.GRCh38.p13.cdna.all.070121.mart_export.txt") %>%
+  select(target_id = 1, Gene = 2, gene_id = 4) %>% distinct(target_id, gene_id, .keep_all = T) %>% na.omit()
+
+#filter
+new_filter <- function(row, min_reads = 5, min_prop = 0.2){mean(row >= min_reads) >= min_prop}
+```
+
+```{r sleuth objects}
+#create sleuth objects
+# so_form <- sleuth_prep(sample_to_covariates = meta_form, target_mapping = t2g, full_model = ~treatment,
+#                        gene_mode = TRUE, aggregation_column = "Gene", filter_fun = new_filter, num_cores = 1)
+# saveRDS(so_form, "objects/so_form.rds")
+so_form <- readRDS("objects/so_form.rds")
+
+# so_vil <- sleuth_prep(sample_to_covariates = meta_vil, target_mapping = t2g, full_model = ~treatment,
+#                        gene_mode = TRUE, aggregation_column = "Gene", filter_fun = new_filter, num_cores = 1)
+# saveRDS(so_vil, "objects/so_vil.rds")
+so_vil <- readRDS("objects/so_vil.rds")
+
+# so_ind <- sleuth_prep(sample_to_covariates = meta_ind, target_mapping = t2g, full_model = ~treatment,
+#                        gene_mode = TRUE, aggregation_column = "Gene", filter_fun = new_filter, num_cores = 1)
+# saveRDS(so_ind, "objects/so_ind.rds")
+so_ind <- readRDS("objects/so_ind.rds")
+
+so_salm <- sleuth_prep(sample_to_covariates = meta_salm, target_mapping = t2g, full_model = ~treatment,
+                       gene_mode = TRUE, aggregation_column = "Gene", filter_fun = new_filter, num_cores = 1)
+saveRDS(so_salm, "objects/so_salm.rds")
+```
+
+```{r fit models}
+#fit models
+so_form <- sleuth_fit(so_form, ~treatment)
+so_form <- sleuth_wt(so_form, "treatmentForm")
+
+so_vil <- sleuth_fit(so_vil, ~treatment)
+so_vil <- sleuth_wt(so_vil, "treatmentVil")
+
+so_ind <- sleuth_fit(so_ind, ~treatment)
+so_ind <- sleuth_wt(so_ind, "treatmentInd")
+
+so_salm <- sleuth_fit(so_salm, ~treatment)
+so_salm <- sleuth_wt(so_salm, "treatmentSalm")
+```
+
+```{r assemble dea table}
+#assemble dea tables
+dea_form <- sleuth_results(so_form, "treatmentForm", "wt") %>%
+  select(Gene = target_id, fold = b, FDR = qval) %>%
+  mutate(fold = fold / log(2)) %>%
+  mutate(agonist_set = "form", treatment = "Form", celltype = "B2B", time = 2, .before = 2)
+
+dea_vil <- sleuth_results(so_vil, "treatmentVil", "wt") %>%
+  select(Gene = target_id, fold = b, FDR = qval) %>%
+  mutate(fold = fold / log(2)) %>%
+  mutate(agonist_set = "vil", treatment = "Vil", celltype = "B2B", time = 2, .before = 2)
+
+dea_ind <- sleuth_results(so_ind, "treatmentInd", "wt") %>%
+  select(Gene = target_id, fold = b, FDR = qval) %>%
+  mutate(fold = fold / log(2)) %>%
+  mutate(agonist_set = "ind", treatment = "Ind", celltype = "B2B", time = 2, .before = 2)
+
+dea_salm <- sleuth_results(so_salm, "treatmentSalm", "wt") %>%
+  select(Gene = target_id, fold = b, FDR = qval) %>%
+  mutate(fold = fold / log(2)) %>%
+  mutate(agonist_set = "salm", treatment = "Salm", celltype = "B2B", time = 2, .before = 2)
+
+dea <- rbind(dea_form, dea_vil, dea_ind, dea_salm) %>%
+  arrange(Gene, treatment)
+
+write_tsv(dea, "B2B_4agonists dea.tsv")
+```
+
+```{r assemble tpm table}
+#assemble tpm tables
+tpm_form <- kallisto_table(so_form, use_filtered = FALSE) %>%
+  select(Gene = target_id, sample, rep, agonist_set, treatment, celltype, time, tpm)
+
+tpm_vil <- kallisto_table(so_vil, use_filtered = FALSE) %>%
+  select(Gene = target_id, sample, rep, agonist_set, treatment, celltype, time, tpm)
+
+tpm_ind <- kallisto_table(so_ind, use_filtered = FALSE) %>%
+  select(Gene = target_id, sample, rep, agonist_set, treatment, celltype, time, tpm)
+
+tpm_salm <- kallisto_table(so_salm, use_filtered = FALSE) %>%
+  select(Gene = target_id, sample, rep, agonist_set, treatment, celltype, time, tpm)
+
+tpm <- rbind(tpm_form, tpm_vil, tpm_ind, tpm_salm) %>%
+  arrange(Gene, agonist_set)
+
+write_tsv(tpm, "B2B_4agonists tpm.tsv")
+```
+
+

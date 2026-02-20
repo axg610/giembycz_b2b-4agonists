@@ -1,0 +1,65 @@
+```{r setup, include=F}
+library(tidyverse)
+library(sleuth)
+library(pheatmap)
+```
+
+```{r heatmap}
+tpm <- read_tsv("BEAS-2B Tap Bay Vil raw data.txt") %>%
+  select(Gene, rep, treatment = Treatment, tpm) %>%
+  mutate(treatment = gsub("Vilanterol", "Vil", treatment)) %>%
+  filter(treatment %in% c("NS", "Vil")) %>%
+  mutate(tpm = log2(tpm + 0.5))
+
+# tpm_mat <- tpm %>%
+#   mutate(sample = paste0(treatment, "_", rep)) %>%
+#   select(Gene, sample, tpm) %>%
+#   pivot_wider(names_from = "sample", values_from = "tpm") %>%
+#   column_to_rownames("Gene") %>%
+#   as.matrix()
+# 
+# pheatmap(tpm_mat,
+#          cutree_cols = 2,
+#          show_rownames = F,
+#          filename = "all log2tpm.png")
+
+# tpm_mat_z <- tpm %>%
+#   mutate(sample = paste0(treatment, "_", rep)) %>%
+#   select(Gene, sample, tpm) %>%
+#   pivot_wider(names_from = "sample", values_from = "tpm") %>%
+#   filter(!if_all(-Gene, ~ .x == -1)) %>%
+#   slice_sample(n = 2927) %>%
+#   column_to_rownames("Gene") %>%
+#   as.matrix()
+# 
+# pheatmap(tpm_mat_z,
+#          cutree_cols = 2,
+#          show_rownames = F,
+#          filename = "10percent zscored.png")
+
+tpm_mat_z <- tpm %>%
+  mutate(sample = paste0(treatment, "_", rep)) %>%
+  select(Gene, sample, tpm) %>%
+  pivot_wider(names_from = "sample", values_from = "tpm") %>%
+  filter(if_all(-Gene, ~ .x >= 5)) %>%
+  slice_sample(n = 2927) %>%
+  column_to_rownames("Gene") %>%
+  as.matrix()
+
+pheatmap(tpm_mat_z,
+         cutree_cols = 2,
+         show_rownames = F,
+         filename = "v2_10percent zscored.png")
+```
+
+```{r pca}
+so <- readRDS("alex_vil_spread_check.rds")
+
+so$sample_to_covariates$rep <- as.character(so$sample_to_covariates$rep)
+
+plot_pca(so, color_by = "rep") +
+  facet_wrap(~treatment) +
+  theme_bw() +
+  theme(aspect.ratio = 1, panel.grid = element_blank(), strip.background = element_blank())
+```
+

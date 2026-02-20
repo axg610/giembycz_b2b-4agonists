@@ -1,0 +1,17 @@
+.RData
+.Rhistory
+*.rds
+*.png
+*.jpg
+*.jpeg
+*.xlsx
+*.txt
+*.csv
+*.docx
+*.pdf
+*.pptx
+
+data/
+old/
+from tamkeen & mark/
+notes.pptx

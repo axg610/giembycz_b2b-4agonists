@@ -1,0 +1,46 @@
+```{r setup, include=F}
+library(tidyverse)
+```
+
+```{r}
+lrt1 = read_tsv("laba_type_LRT.txt")
+lrt2 = read_tsv("laba_type_LRT_budInsert.txt")
+
+goi = read_tsv("B2B_4agonists dea tidy.txt") %>%
+  filter(sig != "ns") %>% pull(Gene) %>% unique()
+
+lrt_comparison = lrt1 %>%
+  rename(FDR1 = FDR) %>%
+  full_join(select(lrt2, Gene, FDR2 = FDR), by = "Gene") %>%
+  filter(!is.na(FDR1) & !is.na(FDR2)) %>%
+  filter(Gene %in% goi)
+```
+
+```{r}
+ggplot(lrt_comparison, aes(x = FDR1, fill = FDR1 <= 0.05)) +
+  geom_histogram(bins = 50) +
+  theme_bw() +
+  theme(aspect.ratio = 0.67, panel.grid.minor = element_blank()) +
+  labs(x = "qval", y = "number of genes", fill = expression(qval <= 0.05),
+       title = "LRT 1", subtitle = "form, vil, ind, salm") +
+  scale_y_continuous(limits = c(0, 700))
+
+ggsave("LRT1.png", h = 3, w = 4)
+
+ggplot(lrt_comparison, aes(x = FDR2, fill = FDR2 <= 0.05)) +
+  geom_histogram(bins = 50) +
+  theme_bw() +
+  theme(aspect.ratio = 0.67, panel.grid.minor = element_blank()) +
+  labs(x = "qval", y = "number of genes", fill = expression(qval <= 0.05),
+       title = "LRT 2", subtitle = "form, vil, ind, salm, bud") +
+  scale_y_continuous(limits = c(0, 700))
+
+ggsave("LRT2.png", h = 3, w = 4)
+```
+
+
+```{r}
+lrt1 %>% filter(FDR <= 0.05 & Gene %in% goi) %>% pull(Gene) %>% unique() %>% length()
+lrt2 %>% filter(FDR <= 0.05 & Gene %in% goi) %>% pull(Gene) %>% unique() %>% length()
+```
+
